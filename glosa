@@ -1,0 +1,26 @@
+#!/bin/sh
+# glosa launcher — symlink this into ~/.local/bin (readlink resolves the link).
+#
+# LD_PRELOAD is needed on Wayland: gtk4-layer-shell must be linked before
+# libwayland, otherwise the layer surface silently falls back to a normal
+# toplevel window. The first libgtk4-layer-shell we find is preloaded.
+set -e
+
+SELF=$(readlink -f -- "$0" 2>/dev/null || printf '%s' "$0")
+DIR=$(dirname -- "$SELF")
+
+LIB=""
+for p in \
+  /usr/lib/libgtk4-layer-shell.so.0 \
+  /usr/lib64/libgtk4-layer-shell.so.0 \
+  /usr/lib/x86_64-linux-gnu/libgtk4-layer-shell.so.0 \
+  /usr/lib/aarch64-linux-gnu/libgtk4-layer-shell.so.0 \
+  /usr/local/lib/libgtk4-layer-shell.so.0
+do
+  if [ -e "$p" ]; then LIB=$p; break; fi
+done
+if [ -z "$LIB" ] && command -v ldconfig >/dev/null 2>&1; then
+  LIB=$(ldconfig -p 2>/dev/null | awk '/libgtk4-layer-shell\.so\.0/ {print $NF; exit}')
+fi
+
+exec env ${LIB:+LD_PRELOAD="$LIB"} python3 "$DIR/glosa.py" "$@"
