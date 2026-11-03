@@ -32,7 +32,7 @@ from gi.repository import Gtk4LayerShell as LayerShell  # noqa: E402
 
 from lookup import Dictionary, shorten  # noqa: E402
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 IDLE_EXIT_SECONDS = 600
 DIRS = {"sv": ("SV", "EN"), "en": ("EN", "SV")}
 POS_ABBR = {}  # wiki POS name → abbreviation, filled after POS_FULL
