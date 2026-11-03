@@ -45,7 +45,7 @@ POS_FULL = {
 POS_ABBR.update({full: abbr for abbr, full in POS_FULL.items()})
 
 HINT = ("<b>↵</b> kopiera &amp; stäng   <b>ctrl+↵</b> kopiera   "
-        "<b>⇥</b> byt riktning   <b>esc</b> stäng")
+        "<b>ctrl+←→</b> välj ord   <b>⇥</b> byt riktning   <b>esc</b> stäng")
 
 DEFAULTS = {
     "surface": "#12161c",
@@ -101,7 +101,7 @@ button#dir:hover { background-color: alpha(@primary, 0.24); }
 #pos { font-size: 12px; color: alpha(@on_surface_variant, 0.75); }
 #trans {
   font-size: 27px;
-  font-weight: 800;
+  font-weight: 400;
   color: @primary;
   margin-top: 2px;
 }
@@ -164,7 +164,10 @@ class Glosa(Gtk.Application):
         self._pos_local = ""
         self._last_res: dict | None = None
         self._last_lang = ""
-        self._primary = ""
+        self._merged: list[str] = []
+        self._pick_idx = 0
+        self.pick_word: str | None = None
+        self._picked = ""
 
     # ---------------- window ----------------
     def do_activate(self) -> None:
@@ -173,6 +176,7 @@ class Glosa(Gtk.Application):
         self._cancel_exit()
         self.override = None
         self.selected_word = None
+        self.pick_word = None
         self.entry.set_text("")
         self.win.present()
         self.entry.grab_focus()
@@ -295,6 +299,9 @@ class Glosa(Gtk.Application):
             self._copy_and_close(
                 keep_open=bool(state & Gdk.ModifierType.CONTROL_MASK))
             return True
+        if (state & Gdk.ModifierType.CONTROL_MASK
+                and keyval in (Gdk.KEY_Left, Gdk.KEY_Right)):
+            return self._pick(-1 if keyval == Gdk.KEY_Left else 1)
         if keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
             rows = list(self._rows())
             if not rows:
@@ -343,6 +350,7 @@ class Glosa(Gtk.Application):
         self.override = "en" if cur == "sv" else "sv"
         self.gen += 1
         self.selected_word = None
+        self.pick_word = None
         self._refresh()
 
     def _set_dir_badge(self, lang: str, ambiguous: bool) -> None:
@@ -440,6 +448,7 @@ class Glosa(Gtk.Application):
         if row.glosa_word != self.selected_word:
             self.selected_word = row.glosa_word
             self.selected_lang = row.glosa_lang
+            self.pick_word = None
             self._start_lookup(row.glosa_word, row.glosa_lang, self.gen)
 
     # ---------------- lookup ----------------
@@ -455,6 +464,9 @@ class Glosa(Gtk.Application):
         self.labels["trans"].set_text("…")
         self.labels["svdef"].set_text("")
         self.labels["endef"].set_text("")
+        self._merged = []
+        self._pick_idx = 0
+        self._picked = ""
         threading.Thread(target=self._work, args=(gen, word, lang),
                          daemon=True).start()
 
@@ -506,6 +518,10 @@ class Glosa(Gtk.Application):
             self.labels["pos"].set_text("")
             self.labels["endef"].set_text("")
             self.labels["svdef"].set_text("Söker i wiktionary …")
+            self._merged = []
+            self._pick_idx = 0
+            self.pick_word = None
+            self._picked = ""
             return
 
         sv_word = res.get("sv_word") or ""
@@ -529,14 +545,20 @@ class Glosa(Gtk.Application):
             wikt_def_pos = POS_ABBR.get(gloss["defs"][0].get("pos", ""), "")
 
         primary = merged[0] if merged else ""
-        self._primary = primary
+        self._merged = merged
+        # keep the marked translation across updates (e.g. a late gloss),
+        # falling back to the primary one
+        pick = merged.index(self.pick_word) if self.pick_word in merged else 0
+        self.pick_word = merged[pick]
+        self._pick_idx = pick
+        self._picked = merged[pick]
         entry = next((e for e in entries if e.get("word") == primary),
                      entries[0] if entries else {})
         defs = entry.get("defs") or {}
         endef = defs.get(wikt_def_pos) or entry.get("def") or ""
         pos = wikt_def_pos if (wikt_def_pos and wikt_def_pos in defs) else entry.get("pos", "")
 
-        self.labels["trans"].set_text(", ".join(merged[:3]))
+        self.labels["trans"].set_markup(self._trans_markup(merged))
         self.labels["pos"].set_text(f"· {pos}" if pos else "")
         endef = re.sub(r"^\([^)]*\)\s*", "", endef).strip()
         self.labels["endef"].set_text(shorten(endef, 16) if endef else "")
@@ -559,6 +581,26 @@ class Glosa(Gtk.Application):
         self._adopt(res, lang)
         return False
 
+    def _trans_markup(self, words: list[str]) -> str:
+        """Render translations, with the marked one heavier/brighter."""
+        parts = []
+        for i, word in enumerate(words):
+            esc = GLib.markup_escape_text(word)
+            if i == self._pick_idx:
+                parts.append(f'<span weight="800">{esc}</span>')
+            else:
+                parts.append(f'<span weight="400" alpha="60%">{esc}</span>')
+        return ", ".join(parts)
+
+    def _pick(self, step: int) -> bool:
+        """Mark the previous/next translation (Ctrl+←/→)."""
+        if len(self._merged) < 2:
+            return False
+        idx = (self._pick_idx + step) % len(self._merged)
+        self.pick_word = self._merged[idx]
+        self._paint_entry()
+        return True
+
     # ---------------- actions ----------------
     def _copy_and_close(self, keep_open: bool = False) -> None:
         row = self.listbox.get_selected_row() if self.listbox else None
@@ -569,9 +611,9 @@ class Glosa(Gtk.Application):
         if not word:
             return
         lang = lang or self.override or self._effective_lang(word)
-        # one word on the clipboard: the primary translation only
-        if word == self.selected_word and self._primary:
-            text = self._primary
+        # one word on the clipboard: the marked translation only
+        if word == self.selected_word and self._picked:
+            text = self._picked
         else:
             res = self.cache.get((word, lang)) or self.dic.translate(word, lang)
             candidates = res.get("translations") or []

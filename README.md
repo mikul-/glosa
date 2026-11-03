@@ -22,7 +22,10 @@ English and vice versa. They're all in `glosa.py` if you want to translate them.
   reverse index over the same data. 0–15 ms per word.
 - **Short explanations** — the first definition from Swedish Wiktionary
   (cached), plus the English definition from the offline dictionary.
-- **One-key copy** — `Enter` copies the primary translation and closes.
+- **One-key copy** — `Enter` copies the marked translation and closes.
+- **Pick any translation** — the card lists every translation; `Ctrl+←`/`Ctrl+→`
+  moves the highlight and `Enter` copies the one you marked (the first, most
+  common one is marked by default).
 - **Direction auto-detection** — type a Swedish word and it goes SV→EN; press
   `Tab` to flip.
 - **No accounts, no API keys, no telemetry.** The only network call is the
@@ -81,8 +84,9 @@ GNOME/KDE: add a custom shortcut that runs `~/.local/bin/glosa`.
 |---|---|
 | type | fuzzy suggestions + live translation of the top hit |
 | `↑` `↓` | pick another suggestion |
-| `Enter` | copy the primary translation and close |
+| `Enter` | copy the marked translation and close |
 | `Ctrl+Enter` | copy, keep the popup open |
+| `Ctrl+←` `Ctrl+→` | mark the previous / next translation to copy |
 | `Tab` | flip SV→EN / EN→SV |
 | `Esc` | close |
 
